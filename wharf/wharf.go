@@ -1,55 +1,38 @@
-package master
+package main 
 
 import(
-	"log"
+	"fmt"
+	"os"
+	/* "wharf/utils" */
+	"wharf/server"
 )
-type WharfCli struct{
-	
-}
-func (cli *WharfCli )CmdHelp(args ...string) error {
-	if len(args) > 0 {
-		method, exists := cli.GetMethod(args[0])
-		if !exists{
-			fmt.Fprintf(cli.err, "Error: Command not found: %s\n", args[0])
-		}else {
-			method("--help")
-			return nil
-		}
-	}
 
-	help := fmt.Sprintf("Usage: wharf [OPITIONS] COMMAND [arg...]\n")
-	for _,command := range [][]string{
-		{"image", "List images"}
-		{"task", "List tasks"}
-		{"kill", "Kill tasks"}
-		{"create", "Create tasks"}
-		{"version", "Show the Wharf version information"}
-		{"remove", "Remove one or more tasks"}
-		{"removei", "Remove one or more images"}
-	}{
-		help += fmt.Sprintf("	%-10.10s%s\n", command[0], command[1])
-	}
-	fmt.Fprintf(cli.err, "%s\n", help)
-	return nil
-}
 
-func main()(){
-	if reexec.Init(){
-		return 	
-	}
-
-	flag.Parse()
-
-	if *flVersion{
-		showVersion()	
+func main(){
+ 	err := server.GetMasterConfig()
+	if err != nil{
+		fmt.Fprintf(os.Stderr, "%s:%s", "main", err)	
 		return 
 	}
 
-	if *flDebug{
-		os.Setenv("DEBUG", "1")	
+	commandRegAndParse()
+
+	//run sub command
+	if *flagDaemon == true{
+//		utils.Daemon(0,1)
+		server.InitServer()	
+	}else{
+		//run sub command
+		Run()
+		/* res, err := Run() */
+		/* if err != nil{ */
+		/* 	fmt.Fprintf(os.Stderr, "%s", err) */
+		/* }else{ */
+		/* 	fmt.Println(string(res)) */				
+		/* } */
 	}
 }
 
 func showVersion() {
-    fmt.Printf("Docker version %s, build %s\n", dockerversion.VERSION, dockerversion.GITCOMMIT)
+	
 }

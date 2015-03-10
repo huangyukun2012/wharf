@@ -1,5 +1,5 @@
 //In the function Update, we should use go routine
-package master 
+package server 
 
 import(
 	"net"
@@ -207,3 +207,39 @@ func Netmain(){
 	Update()
 }
 
+/*function: bind a ip to a container in a host.
+	This is a http request posted to the "docker server". Actrually, it is handler by module of resource.
+	param:	
+		ip: the ip to be bind.
+		id: the id of the container
+		hostip:the hostip
+	return value:
+*/
+func BindIpWithContainerOnHost(containerIp string, id string , hostIp string )(error ){
+	port := MasterConfig.Resource.Port	
+	endpoint := "http://" + hostIp + ":" + port
+	var container2IP utils.ContainerIp
+	containerAIP = utils.ContainerIp{id, containerIp}
+	data, jsonerr := json.Marshal(containerAIP)
+	if jsonerr != nil{
+		return jsonerr
+	}
+	res, err := http.Post(endpoint,utils.POSTURL,data )
+	if err != nil{
+		return err
+	}
+	//err == nil
+	defer res.Body.Close()
+	data , _:= ioutil.ReadAll(res.Body)
+	var result utils.BindResult		
+	jsonerr = json.Unmarshal(data, &result)
+	if jsonerr != nil{
+		return jsonerr	
+	}else{
+		if result.Succeed = true{
+			return nil
+		}else{
+			return errors.New(result.Warning)	
+		}
+	}
+}
