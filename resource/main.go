@@ -2,13 +2,15 @@ package main
 
 import(
 	"bufio"
-	"log"
-	"net/http"
-	"wharf/util"
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
+	"log"
+	"net/http"
+	"os"
+	"wharf/util"
 	"os/exec"
 )
 

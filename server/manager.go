@@ -1,6 +1,7 @@
 package server 
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"io"
@@ -106,6 +107,33 @@ func InitServer(){
 
 
 func initEtcd()error{
+	fmt.Println("Etcd is starting...")	
+
+	//test if etcd has started yet
+	isEtcdStartedCmd := exec.Command("pgrep", "etcd")
+	isEtcdStarted,_ := isEtcdStartedCmd.Output()
+	reader := bufio.NewReader(os.Stdin)
+
+	if len(isEtcdStarted)>0{
+		//etcd is started
+		for{
+			fmt.Println("Etcd is running.Do you want to restart it?(y/n)")		
+			input, _ := reader.ReadBytes('\n')
+			if input[0]!='y'{
+				stopEtcdCmd:= exec.Command("pkill", "etcd")
+				stoperr := stopEtcdCmd.Run()
+				if stoperr!=nil{
+					return stoperr
+				}
+				break
+			}else if input[0]!='n'{
+				return nil
+			}
+		}
+	}
+	//etcd is not started
+
+
 	_, existsErr := exec.LookPath("etcd")
 	if existsErr != nil{
 		return existsErr 
@@ -113,7 +141,8 @@ func initEtcd()error{
 	HOME := os.Getenv("HOME")
 	path := HOME +`/.wharf.etcd`
 	cmd := exec.Command("etcd", "-data-dir="+path )
-	err := cmd.Run()
+	err := cmd.Start()
+	fmt.Println("Etcd is stared!")	
 	return err
 }
 

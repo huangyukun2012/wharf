@@ -272,7 +272,7 @@ func Parse() {
 			os.Exit(1)
 		}
 		if *FlagDebug {//-D
-			fmt.Fprintf(os.Stderr, "Debug mode means nothing when used alone.\n")
+			/* fmt.Fprintf(os.Stderr, "Debug mode means nothing when used alone.\n") */
 			//carefull: This branch will not go out of the function
 		}
 		if *flagRestart{//-r
@@ -281,8 +281,8 @@ func Parse() {
 		}
 		if *flagDaemon{//-d
 			//run as a deamon
-			return 
 		}
+		return 
 	}
 
 	//sub command is provided
