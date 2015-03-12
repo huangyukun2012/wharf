@@ -1,9 +1,12 @@
 package server 
 
 import(
-	"fmt"
+	"errors"
+	"strings"
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
+	"wharf/util"
 )
 
 /*=========== containers================*/
@@ -45,21 +48,17 @@ type CreateContainerOptions struct{
 	WorkingDir string
 	NetworkDisabled bool
 }
+func (opts *CreateContainerOptions)Init(){
+		opts.AttachStdin = true
+		opts.AttachStdout = true
+		opts.AttachStderr = true
+		opts.Tty = true
+		opts.OpenStdin =true
+		opts.StdinOnce = false
+		opts.NetworkDisabled = true
 
-func ListContainers()( []APIContainers, error ){
-	path := `http://127.0.0.1:4243/containers/json?` 
-	c := &http.Client{}
-	body, _, err := c.Do("GET", path, nil)
-	if err != nil{
-		return nil, err
-	}
-	var containers []APIContainers
-	err = json.Unmarshal(body, &containers)
-	if err != nil{
-		return nil, err
-	}
-	return containers, nil
 }
+
 
 type CreateContainerReturn struct{
 	Id string
@@ -74,8 +73,8 @@ func CreateContainer(endpoint string, opts CreateContainerOptions)( *CreateConta
 	path := "/containers/create?"
 	url := "http://" + endpoint + path
 	contentType := "application/json"
-	data := json.Marshal(opts)
-	res, err := http.Post(url, contentType, strings.newReader(data))
+	data, _:= json.Marshal(opts)
+	res, err := http.Post(url, contentType, strings.NewReader(string(data)))
 	
     if err != nil{
 		return nil, err
@@ -94,7 +93,7 @@ func CreateContainer(endpoint string, opts CreateContainerOptions)( *CreateConta
 
 /*function: create container according to Ares
  fill the task struct for the taskname
- and bind ip to containers
+ and bind ip to containers, and start them
  param:
  	*Ares:global param
 	tasknamep: the task to be filled--containerDesc.Id, hostIp, HostMachine 
@@ -102,46 +101,86 @@ func CreateContainer(endpoint string, opts CreateContainerOptions)( *CreateConta
 	nil, if succeed; error , if fail.
 */
 func CreateContainer2Ares( tasknamep *Task) error{
-	var index int32
+	var index int
 	for ip, resData := range Ares{
-		*tasknamep.Set[index].HostIp = ip
-		*tasknamep.Set[index].Hostmachine = resData.Node 
+		tasknamep.Set[index].HostIp = ip
+		tasknamep.Set[index].HostMachine = resData.Node 
 		thisContainerIp, getiperr :=  GetFreeIP()
 		if getiperr != nil{
 				return getiperr
 		}
-		*tasknamep.Set[index].ContainerIp = thisContainerIp.String() 
+		tasknamep.Set[index].ContainerIp = thisContainerIp.String() 
 		var opts CreateContainerOptions
-		opts.Hostname = thisContainerIp//we set the container hostname as its ip 
+		opts.Init()
+		opts.Hostname = thisContainerIp.String()//we set the container hostname as its ip 
 		//modifiy: if Docker_nr all = 0, the node will be filter out
-		//undefined	
-		opts.AttachStdin = true
-		opts.AttachStdout = true
-		opts.AttachStderr = true
-		opts.Tty = true
-		opts.OpenStdin =true
-		opts.StdinOnce = false
-		opts.Cpuset =  utils.DockerNr2String( resData.Docker_nr )
-		opts.Image = tasknamep.TaskName
-		opts.NetworkDisabled = true
+		opts.Cpuset =  util.GetNozeroIndex( resData.Docker_nr )
+		opts.Image = tasknamep.Cmd.ImageName
 
-		endpoint := ip + ":" + MasterConfig.DockerService.Port 	
+		endpoint := ip + ":" + MasterConfig.Docker.Port 	
 		thisContainer, createerr := CreateContainer(endpoint, opts)
 		if createerr != nil{
 			return createerr	
 		}else{
-			*tasknamep.Set[index].ContainerDescp.Id = thisContainer.Id	
+			tasknamep.Set[index].ContainerDesc.Id = thisContainer.Id	
 		}
-		binderr:= BindIpWithContainerOnHost(thisContainerIp, thisContainer.Id, ip)
+		starterr := StartContainerOnHost(thisContainer.Id, ip)
+		if starterr != nil{
+			return starterr	
+		}
+
+		binderr:= BindIpWithContainerOnHost(thisContainerIp.String(), thisContainer.Id, ip)
 		if binderr != nil{
 			return binderr	
 		}
+		
 		index++
 	}
 	return nil
 }
 
-func main(){
-	res, err := ListContainers()	
-	fmt.Println(res[0].ID)
+/*function:
+	start a container with id of "id" ont host "hostIP".
+	This will give out a http request to the docker deamon on "HostIP".
+ return value:
+ 	nil, when no error
+	*/
+func StartContainerOnHost( id , hostIp string)error{
+	endpoint := "http://" + hostIp 
+	path := `/containers/` + id +`/start`
+
+	res, err := http.Post(endpoint+path ,util.POSTTYPE, strings.NewReader("") )
+
+	if err != nil{
+		return err
+	}
+	//err == nil
+	if strings.HasPrefix(res.Status, "200"){
+		return nil	
+	}else{
+		return errors.New(res.Status)	
+	}
+}
+
+/*function:
+	stop a container with id of "id" ont host "hostIP".
+	This will give out a http request to the docker deamon on "HostIP".
+ return value:
+ 	nil, when no error
+	*/
+func StopContainerOnHost( id , hostIp string)error{
+	endpoint := "http://" + hostIp 
+	path := `/containers/` + id +`/stop?t=1`
+
+	res, err := http.Post(endpoint+path ,util.POSTTYPE, strings.NewReader(""))
+
+	if err != nil{
+		return err
+	}
+	//err == nil
+	if strings.HasPrefix(res.Status, "200"){
+		return nil	
+	}else{
+		return errors.New(res.Status)	
+	}
 }

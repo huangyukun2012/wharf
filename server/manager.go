@@ -2,58 +2,54 @@ package server
 
 import (
 	"fmt"
-	"encoding/json"
-	"wharf/utils"
 	"os"
 	"io"
-	"net/http"
 	"log"
 	"strings"
 	"strconv"
-	/* "net" */
-	/*
-	"bufio"
 	"time"
-	*/
+	"encoding/json"
 	"github.com/coreos/go-etcd/etcd"
+	"io/ioutil"
+	"net/http"
+	"os/exec"
+	"wharf/util"
 )
+
+var flagDebug *bool
+var MasterConfig util.Config
+//==============task
+const(
+	TaskNumMax=6000
+	RUN=0
+	DOWN=1
+)
+var TasksIndex int32
 type Task struct{
-	Cmdp	*CreateRequest 
+	Cmd		CreateRequest 
 	Set		[]CalUnit
+	Status	int32	
+	CreatedTime time.Time	
 }
+func (t *Task)Init(cmd CreateRequest, setnum int){
+	t.Cmd=cmd
+	t.Set= make([]CalUnit, setnum)
+}
+
+var Tasks map[string]Task
 
 type CalUnit struct{
 	ContainerIp string
-	ContainerDescp *APIContainer
+	ContainerDesc APIContainer
 	HostIp string
-	HostMachinep	*utils.Machine
+	HostMachine	util.Machine
 }
 
-type Configd struct{
-	Etcdnode utils.Etcd
-	IpPool utils.IpPool	
-	Service   Serve
-	Docker	DockerService
-	Resource Resource	
-}
 
-type DockerService struct{
-	Port	string
-}
-
-type Resource struct{
-	Port	string
-}
-
-type Serve struct{
-	Ip  string 
-	Port string
-}
-
+//==============res
 type Res struct {
-	Node  utils.Machine
+	Node  util.Machine
 	Docker_nr 	[]int// container num running on each cpu
-	/* Filter	[]bool */
 }
 
 //node-resouce for cluster
@@ -64,42 +60,96 @@ var Gres map[string]Res
 var Rres map[string]Res
 var Ares map[string]Res
 
-var MasterConfig Configd
+//=============response
+type httpResponse struct{
+	Succeed  bool
+	Warning	 string
+}
+func (h *httpResponse)Init(){
+	h.Succeed=false
+}
 
+type CreateResponse struct{
+	Succeed  bool
+	Warning	 string
+}
+
+func  (c *CreateResponse)String() string{
+	if c==nil{
+		return "nil"
+	}
+	data ,_:= json.Marshal(*c)
+	return string(data)
+}
 
 //Init  net server, etcd server
 func InitServer(){
-
+	err := initEtcd()
+	if err != nil{
+		util.PrintErr(err.Error())
+		os.Exit(1)
+	}
+	initNetwork()	
 	Gres = make(map[string]Res, 1)
 	Rres = make(map[string]Res, 1)
-	http.HandleFunc("/list_task", ListTaskHandler)
-	http.HandleFunc("/create", CreateHandler)
+	Tasks = make(map[string]Task, 1)
 
-	errhttp := http.ListenAndServe(":"+MasterConfig.Service.Port, nil)
+	http.HandleFunc("/list_task", ListTaskHandler)
+	http.HandleFunc("/create_task", CreateTaskHandler)
+	http.HandleFunc("/transport_image", TransportImageHandler)
+
+	errhttp := http.ListenAndServe(":"+MasterConfig.Server.Port, nil)
 	if errhttp != nil{
 		log.Fatal("InitServer: ListenAndServe ", errhttp)	
 	}
-	/* initNetwork() */	
-	/* initEtcd() */
-	/* initImageServer() */
+}
+
+
+func initEtcd()error{
+	_, existsErr := exec.LookPath("etcd")
+	if existsErr != nil{
+		return existsErr 
+	}
+	HOME := os.Getenv("HOME")
+	path := HOME +`/.wharf.etcd`
+	cmd := exec.Command("etcd", "-data-dir="+path )
+	err := cmd.Run()
+	return err
+}
+
+			
+
+func TransportImageHandler( w http.ResponseWriter, r *http.Request){
+
 }
 
 func ListTaskHandler(w http.ResponseWriter, r *http.Request){
-	content := r.Body
-	fmt.Println(content)	
 	return 
 }
 
-func CreateHandler( w http.ResponseWriter, r *http.Request){
+/*function:create task from the user command. 
+	we will create the task and store it in Tasks
+param:
+	r: r.Body include the string of the user command
+	w:	w.Body include the result of the create.response will be marshal to w.
+*/
+func CreateTaskHandler( w http.ResponseWriter, r *http.Request){
+	var response CreateResponse
+	var thisTask Task
+	response.Succeed = false
+
 	var contents []byte
 	contents = make([]byte, 1000)
 	length, err := r.Body.Read(contents)
 	if err != nil && err != io.EOF{
 		fmt.Fprintf(os.Stderr, "CreateHandler: can not read from http resposeWriter\n")	
 		fmt.Fprintf(os.Stderr, "%s", err)
+		response.Warning = "CreateHandler: can not read from http resposeWriter\n" + err.Error()
+		io.WriteString(w, response.String())
+		return 
 	}
-	var res utils.SendCmd
-	if *wharf.FlagDebug {
+	var res util.SendCmd
+	if *flagDebug {
 		fmt.Println("contents:", string(contents))
 	}
 	//make sure the char in contents should not include '\0'
@@ -108,10 +158,13 @@ func CreateHandler( w http.ResponseWriter, r *http.Request){
 	if errunmarshal != nil{
 		fmt.Fprintf(os.Stderr, "CreateHandler: Unmarshal failed for contents: ")
 		fmt.Fprintf(os.Stderr, "%s", errunmarshal)
+		response.Warning = "CreateHandler: Unmarshal failed for contents: " + errunmarshal.Error()
+		io.WriteString(w, response.String())
+		return 
 	}else{
 		//now we will create our task here: filter, allocator, (image server) ,scheduler
 		var userRequest CreateRequest
-		InitCreateRequest( &userRequest )//undefined
+		userRequest.Init()
 		for thisflag, flagvalue := range res.Data{
 			switch {
 				case strings.EqualFold(thisflag,"i") :	
@@ -120,7 +173,8 @@ func CreateHandler( w http.ResponseWriter, r *http.Request){
 					userRequest.TypeName = flagvalue
 					if  !strings.EqualFold(flagvalue,"mpi") && !strings.EqualFold(flagvalue,"single"){
 						fmt.Fprintf(os.Stderr, `the type of the task is not supported yet. Only "single" and "mpi" is supported.`)	
-						io.WriteString(w,`the type of the task is not supported yet. Only "single" and "mpi" is supported.`)
+						response.Warning =`the type of the task is not supported yet. Only "single" and "mpi" is supported.` 
+						io.WriteString(w,response.String())
 						return 
 					}
 				case strings.EqualFold(thisflag,"n") :	
@@ -131,7 +185,8 @@ func CreateHandler( w http.ResponseWriter, r *http.Request){
 					}else if strings.EqualFold(flagvalue, "COM"){
 						userRequest.Stratergy = 1 
 					}else{
-						io.WriteString(w,`Only MEM and COM are valid for -s flag`)
+						response.Warning = `Only MEM and COM are valid for -s flag`
+						io.WriteString(w,response.String())
 						return 
 					}
 				case strings.EqualFold(thisflag,"c") :	
@@ -139,59 +194,83 @@ func CreateHandler( w http.ResponseWriter, r *http.Request){
 				case strings.EqualFold(thisflag,"C") :	
 				 	userRequest.ContainerNumMax, _ = strconv.Atoi(flagvalue)	
 				case strings.EqualFold(thisflag,"l") :	
-					userRequest.OverloadMax ,_ =strconv.ParseFloat(flagvalue,32)
+					value, _ := strconv.ParseFloat(flagvalue,32) 
+					userRequest.OverLoadMax = float32(value)
 				case strings.EqualFold(thisflag,"f") :	
 					filename := flagvalue
 					readerme,openerr := os.Open(filename)	
 					if openerr != nil{
 						fmt.Fprintf(os.Stderr, "CreateHandler:%s", openerr)	
+						response.Warning = "CreateHandler" + openerr.Error() 
+						io.WriteString(w, response.String())
+						return 
 					}	
-					unmarshalerr = UnmarshalReader(readerme, &(userRequest.ResNode))
+					unmarshalerr := util.UnmarshalReader(readerme, &(userRequest.ResNode))
+					if unmarshalerr != nil{
+						response.Warning = unmarshalerr.Error()	
+						io.WriteString(w, response.String())
+					}
 			default:
-				fmt.Fprintf(os.Stderr, "CreateHandler: %s flag invalid", flag)
+				fmt.Fprintf(os.Stderr, "CreateHandler: %s flag invalid", thisflag)
+				response.Warning = "CreateHandler: " + thisflag + "flag invalid"
+				io.WriteString(w, response.String())
+				return 
 			}
 		}
+
 		var err error
-		errUpdateEtcd := UpdateEtcdForUse()
-		if errUpdateEtcd != nil{
-			io.WriteString(w, errUpdateEtcd.Error())	
+		endpoint := []string{"http://" + MasterConfig.EtcdNode.Ip +":" + MasterConfig.EtcdNode.Port}
+		err = UpdateEtcdForUse(endpoint, MasterConfig.EtcdNode.Key, true, true)
+		if err!= nil{
+			response.Warning = err.Error()
+			io.WriteString(w, response.String())
 			return 
 		}
 
-		errUpdateGres := UpdateGres()
-		if errUpdateGres != nil{
-			io.WriteString(w, errUpdateGres.Error())	
+		err = UpdateGres()
+		if err!= nil{
+			response.Warning = err.Error()
+			io.WriteString(w, response.String())
 			return 
 		}
 
 		err = Filter(userRequest)
 
-		err = Allocate()
+		err = Allocate( userRequest )
 		if err!= nil{
 			io.WriteString(w, err.Error())	
+			io.WriteString(w, response.String())
 			return 
 		}
 
 		err = ImageTransport()
 		if err!= nil{
 			io.WriteString(w, err.Error())	
+			io.WriteString(w, response.String())
 			return 
 		}
 		
-		//create container, bind ip
-		err = CreateContainer2Ares()
+		//create container,start it,  bind ip
+		thisTask.Init(userRequest,len(Ares) )
+		err = CreateContainer2Ares(&thisTask )
 		if err!= nil{
 			io.WriteString(w, err.Error())	
+			io.WriteString(w, response.String())
 			return 
 		}
-
+		thisTask.CreatedTime = time.Now()
+		Tasks[userRequest.TaskName]=thisTask
 	}
+}
+
+func ImageTransport()error{
+	return nil
 }
 
 //update Gres from etcd server
 func UpdateGres() (error){
-	key := MasterConfig.Etcdnode.Key
-	machines := []string{`http://`+ MasterConfig.Etcdnode.Ip+":"+MasterConfig.Etcdnode.Port}
+	key := MasterConfig.EtcdNode.Key
+	machines := []string{`http://`+ MasterConfig.EtcdNode.Ip+":"+MasterConfig.EtcdNode.Port}
 
 	err := GetMachineResource(machines, key, false, false )
 	return err
@@ -216,18 +295,18 @@ func GetMachineResource( endpoint []string, key string, sort, recursive bool)( e
 		//skip the "/" to get ip
 		ip:= res.Node.Nodes[i].Key[1:]
 		machineValue:= res.Node.Nodes[i].Value
-		if *(wharf.FlagDebug){
+		if *(flagDebug){
 			fmt.Println("What we get in etcd is:")	
 			fmt.Println(ip, ":", machineValue)	
 		}
 
-		var machine_info utils.Machine 
+		var machine_info util.Machine 
 		json.Unmarshal([]byte(machineValue), &machine_info)
 		_, found := Gres[ip] 
 		var temp Res
 		temp.Node = machine_info
 		if  found {
-			if  machine_info.Status != utils.UP{
+			if  machine_info.Status != util.UP{
 				delete(Gres,key)	
 			}else{
 				temp.Docker_nr = Gres[ip].Docker_nr	
@@ -263,34 +342,39 @@ func UpdateEtcdForUse( endpoint []string, key string, sort, recursive bool)( err
 		//skip the "/" to get ip
 		ip := res.Node.Nodes[i].Key[1:]
 		machineValue := res.Node.Nodes[i].Value
-		if *(wharf.FlagDebug){
+		if *(flagDebug){
 			fmt.Println("What we get in etcd is:", ip, ":", machineValue)	
 		}
 
-		var machine_info utils.Machine 
+		var machine_info util.Machine 
 		json.Unmarshal([]byte(machineValue), &machine_info)
-		if machine_info.Status == utils.DOWN{
+		if machine_info.Status == util.DOWN{
 			client.Delete(key, false)	
 		}else{//not down
 			getResourceUrl := `http://` + ip +`/` +`get_resource`
 			resp, err := http.Get(getResourceUrl)	
 			var getSucceed bool//the default is false
+			getSucceed = false
 			if err == nil{
 				defer resp.Body.Close()	
-				body, err := ioutil.ReadAll(resp.Body)
-				bodystring := string(body)
-				if strings.EqualFold(bodystring, "succeed"){
-					getSucceed = true 
+				body, _:= ioutil.ReadAll(resp.Body)
+				var resp util.HttpResponse
+				jsonerr := json.Unmarshal(body, &resp)
+				if jsonerr != nil{
+					return jsonerr	
 				}
+				getSucceed = resp.Succeed 
 			}
 			if !getSucceed {
 				machine_info.FailTime++
-				if machine_info.FailTime >= utils.MaxFailTime{
-					machine_info.Status = utils.DOWN	
+				if machine_info.FailTime >= util.MaxFailTime{
+					machine_info.Status = util.DOWN	
 				}else{
-					machine_info.Status = utils.ALIVE
+					machine_info.Status = util.ALIVE
 				}
-				machineValue, errmarshal= json.Marshal(machine_info)
+
+				machineValueBytes, errmarshal := json.Marshal(machine_info)
+				machineValue=string(machineValueBytes)
 				if errmarshal != nil{
 					fmt.Fprintf(os.Stderr, "UpdateEtcdForUse: marshal machine_info failed--%s", errmarshal)
 					return errmarshal	
@@ -307,30 +391,3 @@ func UpdateEtcdForUse( endpoint []string, key string, sort, recursive bool)( err
 	return nil
 }
 
-//get config info from /etc/wharf/configd to MasterConfig
-func GetMasterConfig() ( error ){
-	filename := "/etc/wharf/configd"
-	reader , err := os.Open(filename)	
-	if err != nil{
-		fmt.Println(filename, err)	
-		return err
-	}
-
-	MasterConfig , err = UnmarshalConfigd(reader)	
-
-	return err 
-}
-
-//unmarshal configd from Reader  
-func UnmarshalConfigd(reader io.Reader )( Configd, error){
-	decoder := json.NewDecoder(reader)
-	var res Configd					
-	err := decoder.Decode(&res)
-	return res, err
-}
-
-func UnmarshalReader( res interface{}, reader io.Reader)(  error){
-	decoder := json.NewDecoder(reader)
-	err := decoder.Decode(&res)
-	return err
-}

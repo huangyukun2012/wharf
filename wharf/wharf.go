@@ -9,7 +9,7 @@ import(
 
 
 func main(){
- 	err := server.GetMasterConfig()
+	err := server.MasterConfig.Init()
 	if err != nil{
 		fmt.Fprintf(os.Stderr, "%s:%s", "main", err)	
 		return 
@@ -24,12 +24,6 @@ func main(){
 	}else{
 		//run sub command
 		Run()
-		/* res, err := Run() */
-		/* if err != nil{ */
-		/* 	fmt.Fprintf(os.Stderr, "%s", err) */
-		/* }else{ */
-		/* 	fmt.Println(string(res)) */				
-		/* } */
 	}
 }
 

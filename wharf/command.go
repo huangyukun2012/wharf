@@ -12,7 +12,7 @@ import (
 	"errors"
 	"encoding/json"
 	"net/http"
-	"wharf/utils"
+	"wharf/util"
 	"wharf/version"
 	"wharf/server"
 )
@@ -83,7 +83,7 @@ func (e *Subcommand ) Run( arg []string) ([]byte, error){
 	fs := e.fs
 	fmt.Fprintf(os.Stderr, "subcommand %s will be executed\n", e.name)
 	fs.Visit(fun)
-	var tobesend utils.SendCmd 
+	var tobesend util.SendCmd 
 	tobesend.Data = sendflags
 	value, err := json.Marshal(&tobesend)
 	if	err != nil{
@@ -91,7 +91,7 @@ func (e *Subcommand ) Run( arg []string) ([]byte, error){
 		return contents, err
 	}else{
 		var url string
-		url = "http://" + server.MasterConfig.Service.Ip + ":" + server.MasterConfig.Service.Port +"/" + e.name
+		url = "http://" + server.MasterConfig.Server.Ip + ":" + server.MasterConfig.Server.Port +"/" + e.name
 		if *FlagDebug {
 		}
 			fmt.Fprintf(os.Stderr, "the value of post data is %s\n", string(value))	

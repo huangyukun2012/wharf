@@ -8,6 +8,7 @@
 package main 
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"net"
@@ -17,25 +18,21 @@ import (
 	"io"
 	"strconv"
 	"time"
-	"wharf/utils"			
+	"wharf/util"			
 	"github.com/coreos/go-etcd/etcd"
 
 )
+var flagD *bool
 
-type Config struct{
-	MasterIp	string
-	EtcdNode 	utils.Etcd
-	Resource 	Service	
-}
 
 type Service struct{
 	Port 	string
 }
 
-var ClientConfig Config
-var cache []utils.MachineRaw
+var ClientConfig util.Config
+var cache []util.MachineRaw
 var index int
-var res utils.MachineRaw
+var res util.MachineRaw
 
 const (
 	size = 31	
@@ -47,12 +44,17 @@ func errPrintln(a ...interface{}){
 //get config file, and init the cache data
 func Init(){
 
-	err := GetClientConfig()
+	err := ClientConfig.Init()
 	if err != nil{
 		errPrintln("func Init:", err)
 	}
-	 index = 0
-	cache = make([]utils.MachineRaw, size)
+	errdocker := startDocker()
+	if errdocker != nil{
+		util.PrintErr(errdocker.Error())	
+	}
+	 
+	index = 0
+	cache = make([]util.MachineRaw, size)
 	res, _= GetMachineInfo()
 	for i:=0;i<size;i++{
 		cache[i]= res
@@ -79,36 +81,45 @@ func CollectLoop(){
 }
 
 /*send the info of this node to etcd server
+function: if the etcd server is down, we will try for 10 times. After that the process will exit.
+
 if succeed , returen nil
 else: return err
 */
 func SendInfo2Etcd(status int32) (error){
 	// send info to master for timeinterval 1, 5, 15 
 	var last [3]int
-	var send utils.Machine 
+	var send util.Machine 
 	send.Status = status
 
 	send.MemInfo = res.MemInfo
-	for i:=0 ; i< utils.TimeIntervalNum; i++{
-		last[i] = index - utils.TimeInterval[i]*2;	
+	for i:=0 ; i< util.TimeIntervalNum; i++{
+		last[i] = index - util.TimeInterval[i]*2;	
 		if last[i]<0 {
 			last[i]= last[i]+size
 		}
 	}		
-	history := []utils.CpuRaw{cache[last[0]].CpuInfo, cache[last[1]].CpuInfo, cache[last[2]].CpuInfo}
-	send.CpuInfo = utils.HandleCPU(res.CpuInfo, history)
+	history := []util.CpuRaw{cache[last[0]].CpuInfo, cache[last[1]].CpuInfo, cache[last[2]].CpuInfo}
+	send.CpuInfo = util.HandleCPU(res.CpuInfo, history)
 	send.FailTime = 0
 	if value, err := json.Marshal(&send) ; err != nil{
 		panic(err)
 	}else{
 		machines := []string{"http://" + ClientConfig.EtcdNode.Ip +":" + ClientConfig.EtcdNode.Port}
-		err := Store(machines, res.Ip, string(value), 0 )		
-		if err != nil{
-			fmt.Fprintf(os.Stderr, "SendInfo2Etcd: Store failed--%s", err)	
+		if *flagD{
+			util.PrintErr(res.Ip)	
+			util.PrintErr(string(value))	
 		}
-		return err
-	//	fmt.Println(res.Ip)
-	//	fmt.Println(string(value))
+		var newerr error
+		for i:=0;i<5;i++{
+			newerr = Store(machines, res.Ip, string(value), 0 )		
+			if newerr!= nil{
+				fmt.Fprintf(os.Stderr, "SendInfo2Etcd: Store failed--%s, it will try %d times\n", newerr,4-i)	
+			}else{
+				break
+			}
+		}
+		return newerr
 	}
 }
 
@@ -118,18 +129,19 @@ func Store(endpoint []string, key string, value string, ttl uint64) (error){
 	client := etcd.NewClient(endpoint)
 	_, err := client.Set(key, value, ttl)
 	if err != nil{
-		errPrintln( "Function Store:", "Hearbeat failed -- key: \n", key,", value:",  value, "-- ", err)
-		errPrintln("May be the etcd server is down, please check it\n")
-		return err
+		if *flagD {
+			errPrintln( "Function Store:", "Hearbeat failed -- key: \n", key,", value:",  value, "-- ", err)
+			errPrintln("May be the etcd server is down, please check it\n")
+		}
 	}
-	return nil
+	return err 
 }
 
 /***
 Get raw machine info 
 ***/
-func GetMachineInfo( ) (utils.MachineRaw, error){
-	var res utils.MachineRaw
+func GetMachineInfo( ) (util.MachineRaw, error){
+	var res util.MachineRaw
 	var err1 error
 	var err2 error
 	res.Ip = GetAddr()
@@ -147,7 +159,7 @@ func GetMachineInfo( ) (utils.MachineRaw, error){
 /***
 get raw info of cpu
 ***/
-func GetCpuInfo() (res utils.CpuRaw, err error) {
+func GetCpuInfo() (res util.CpuRaw, err error) {
 	var err1 error
 	var err2 error
 	res.Num, res.Ticks , err1= GetCpuTicks()	
@@ -165,7 +177,7 @@ func GetCpuInfo() (res utils.CpuRaw, err error) {
 get ip address of the machine
 ***/
 func GetAddr() string { //Get ip
-	master := ClientConfig.MasterIp;
+	master := ClientConfig.Server.Ip;
 	conn, err := net.Dial("udp", master+":80")
     if err != nil {
         errPrintln( err.Error())
@@ -178,7 +190,7 @@ func GetAddr() string { //Get ip
 /***
 get mem info from /proc/meminfo
 ***/
-func GetMem() (res utils.Mem, reserr error){//get mem_total, mem_free
+func GetMem() (res util.Mem, reserr error){//get mem_total, mem_free
 	mem_info_file := "/proc/meminfo"		
 	fin, err := os.Open(mem_info_file)
 	defer fin.Close()
@@ -192,7 +204,7 @@ func GetMem() (res utils.Mem, reserr error){//get mem_total, mem_free
 		line, err := lines.ReadString('\n')
 		if err != nil || err == io.EOF {
 			errPrintln("Error: invalid content in /proc/meminfo")	
-			return res, &utils.ContentError{mem_info_file, err}
+			return res, errors.New("invalid content in /proc/meminfo")
 		}
 		columns := strings.Split(line, " ")
 		columns_len := len(columns)
@@ -225,7 +237,7 @@ func GetCpuTicks() (cpu_num int, ticks [][]int64,err error ){
 		line,err := content.ReadString('\n')
 		if err != nil || io.EOF==err {
 			errPrintln("err: invalid content in /proc/stat")
-			return 0, res, &utils.ContentError{cpu_usage_file, err}
+			return 0, res, errors.New("invalid content in /proc/stat")
 		}
 		if line[0]=='c' && line[1]=='p' && line[2]=='u'{
 			if line[3] != ' '{
@@ -275,7 +287,7 @@ func GetCpuLoadavg( )( []float32, error) {
 
 //get client config 
 func GetClientConfig() ( error ){
-	filename := "/etc/wharf/config"
+	filename := "/etc/wharf/wharf.conf"
 	reader , err := os.Open(filename)	
 	if err != nil{
 		errPrintln(os.Stderr, filename, err)	
@@ -290,9 +302,9 @@ func GetClientConfig() ( error ){
 }
 
 //unmarshal config
-func UnmarshalConfig(reader io.Reader )( Config, error){
+func UnmarshalConfig(reader io.Reader )( util.Config, error){
 	decoder := json.NewDecoder(reader)
-	var res Config					
+	var res util.Config					
 	err := decoder.Decode(&res)
 	return res, err
 }

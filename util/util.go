@@ -2,12 +2,16 @@
 package util
 
 import(
+	"io"
 	"net"
     "log"
     "os"
     "runtime"
+	"strings"
+	"strconv"
     "syscall"
-
+	"encoding/json"
+	"fmt"
 )
 
 const(
@@ -15,8 +19,30 @@ const(
 	ALIVE=0
 	UP=1
 	MaxFailTime=3
-	POSTURL="application/x-www-form-urlencoded"
+	POSTTYPE="application/x-www-form-urlencoded"
 )
+/*=====================config======================*/
+
+type Config struct{
+	EtcdNode 	Etcd
+	Network 	Network
+	Server   	Serve
+	Docker		DockerService
+	Resource 	Resource	
+}
+
+func (c *Config)Init()error{
+	filename := "/etc/wharf/wharf.conf"
+	reader , err := os.Open(filename)	
+	if err != nil{
+		PrintErr(filename, err)	
+		return err
+	}
+	err = UnmarshalReader(reader, c)	
+
+	return err 
+}
+
 
 type Etcd struct{
 	Ip string
@@ -24,11 +50,24 @@ type Etcd struct{
 	Key string
 }
 
-type IpPool struct{
+type Network struct{
 	Net  	net.IP	
 	IPMask 	net.IP 
 	Start  	net.IP	
 	End	   	net.IP 
+}
+
+type Serve struct{
+	Ip  string 
+	Port string
+}
+
+type DockerService struct{
+	Port	string
+}
+
+type Resource struct{
+	Port	string
 }
 
 /*===machine====*/
@@ -73,7 +112,7 @@ type SendCmd struct{
 }
 
 /*===net ===*/
-type Container2IP struct{
+type Container2Ip struct{
 	Id string
 	Ip	string
 }
@@ -83,18 +122,59 @@ type BindResult struct{
 	Warning string
 }
 
+//=============response
+type HttpResponse struct{
+	Succeed  bool
+	Warning	 string
+}
+func (h *HttpResponse)Set(succeed bool , warning string){
+	h.Succeed = false
+	h.Warning = warning 
+}
+func (h *HttpResponse)String() string{
+	if h==nil{
+		return "nil"	
+	}
+	res , _:= json.Marshal(*h)
+	return string(res)
+}
+
+//======================operation
+func UnmarshalReader( reader io.Reader, res interface{})(  error){
+	decoder := json.NewDecoder(reader)
+	err := decoder.Decode(&res)
+	return err
+}
+
+func IsAllZero(input []int)bool{
+	for i:=0;i<len(input);i++{
+		if input[i] != 0{
+			return false	
+		}	
+	}
+	return true
+}
+
+func GetNozeroIndex(data []int)string{
+	var res string 
+	for i:=0;i<len(data);i++{
+		if data[i]>0 {
+			res = res+ strconv.Itoa(i)+","	
+		}	
+	}
+	if  !strings.EqualFold(res,""){
+		n := len(res)
+		res=res[:n-1]//left out the last comma	
+	}
+	return res
+}
+
 var TimeInterval = []int{1, 5, 15}
 var TimeIntervalNum = 3
 var TicksType = 4//usr, nice, sys, idle
 
-func (e *ContentError ) Error() string{
-	return "Error: content is not right in " + e.Name + e.Err.Error()
-}
 
-func (e *IpPool)Error( ) string{
-	str := "no invalid ip is available in the ip pool"
-	return str
-}
+
 func HandleCPU( now CpuRaw, last []CpuRaw) (res Cpu) {
 	//timeIntervalNum == len(last)
 	res.Num = now.Num
@@ -186,6 +266,10 @@ func Daemon(nochdir, noclose int) int {
     }
  
     return 0
+}
+
+func PrintErr( a ...interface{}){
+	fmt.Fprintln(os.Stderr, a...)
 }
 
 //To do:
