@@ -17,7 +17,7 @@ func main(){
 	}
 
 	commandRegAndParse()
-
+	server.FlagDebug = FlagDebug
 	//run sub command
 	if matchingCmd==nil{
 		server.InitServer()	

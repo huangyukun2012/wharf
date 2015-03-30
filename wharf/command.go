@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"strconv"
 	"io/ioutil"
 	"errors"
 	"encoding/json"
@@ -25,7 +26,8 @@ const(
 	Create = iota
 	Images
 	Inspect
-	Kill
+	Stop
+	Start
 	Ps
 	Rm
 	Rmi
@@ -72,19 +74,32 @@ func (e *Subcommand) Flags(inputfs *flag.FlagSet) *flag.FlagSet{
 	return inputfs
 }
 
-func  fun(fl *flag.Flag){
+func (e *Subcommand) PrintDefaults() {
+	fmt.Println(e.fs.Usage)
+	return 
+}
+func  storeFlag(fl *flag.Flag){
 	sendflags[fl.Name]=fl.Value.String()
 }
 
-//give subcommad to httpserver, this acted as a http request
+/*give subcommad to httpserver, this acted as a http request
+return value:
+	error occur:Fail to post, or the server do no answer.
+	error nil;the data from the server
+*/
 func (e *Subcommand ) Run( arg []string) ([]byte, error){
 
 	var contents []byte
 	fs := e.fs
-	fmt.Fprintf(os.Stderr, "subcommand %s will be executed\n", e.name)
-	fs.Visit(fun)
+		
+	if *FlagDebug {
+		fmt.Fprintf(os.Stderr, "subcommand %s will be executed\n", e.name)
+	}
+
+	fs.Visit(storeFlag)
 	var tobesend util.SendCmd 
 	tobesend.Data = sendflags
+	tobesend.Args = arg
 	value, err := json.Marshal(&tobesend)
 	if	err != nil{
 		panic(err)	
@@ -92,13 +107,19 @@ func (e *Subcommand ) Run( arg []string) ([]byte, error){
 	}else{
 		var url string
 		url = "http://" + server.MasterConfig.Server.Ip + ":" + server.MasterConfig.Server.Port +"/" + e.name
+
 		if *FlagDebug {
-		}
 			fmt.Fprintf(os.Stderr, "the value of post data is %s\n", string(value))	
+		}
+
 		res, err2 := http.Post(url, `appliction/x-www-form-urlencoded`, strings.NewReader(string(value)) )	
 		if err2 !=nil{
-			fmt.Fprintf(os.Stderr, "%s", err2 )
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "Error: Fail to Post: %s", err2 )
+			return contents, err2
+		}else if !strings.HasPrefix(res.Status, "200"){
+			util.PrintErr("Error: Server Fail to handle this request, "+res.Status)	
+			os.Exit(1)	
+			return contents,errors.New("Error: Server Fail to handle this request, "+res.Status) 
 		}else{
 			defer res.Body.Close()
 			var err3 error
@@ -109,15 +130,14 @@ func (e *Subcommand ) Run( arg []string) ([]byte, error){
 				return contents, err3
 			}else{
 				if *FlagDebug {
-				}
 					fmt.Fprintf(os.Stderr, "the return data of post is %s\n", string(contents))	
+				}
 				return  contents, nil
 			}
 		}
 	}
 	return contents, nil
 }
-
 
 type  flagDec struct {
 	name string
@@ -132,7 +152,6 @@ type cmdCont struct {//sub command
 	requiredFlags []string
 	validFlags []flagDec
 }
-
 
 // Registers a Cmd for the provided sub-command name. E.g. name is the
 // `status` in `git status`.
@@ -174,18 +193,49 @@ func Usage() {
 	fmt.Fprintf(os.Stderr, "\n%s <command> -h for subcommand help\n", program)
 }
 
+/* function :Print the subcommand usage*/
 func subcommandUsage(cont *cmdCont) {
 	program := PROGRAM
-	if strings.EqualFold( cont.name, "version" ){
-		fmt.Fprintf(os.Stderr, "Usage of %s %s:\n", program , cont.name)
-		fmt.Fprintf(os.Stderr, `              Just use "wharf version"`+"\n")
-	}else{
-		fmt.Fprintf(os.Stderr, "Usage of %s %s:\n", program , cont.name)
+	switch  cont.name {
+		case "version":
+			fmt.Fprintf(os.Stderr, "Usage of %s %s:\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `              Just use "wharf version"`+"\n")
+		case "create":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS]\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `Create a task from user command`+"\n")
+		case "ps":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS]\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `List one or more tasks`+"\n")
+		case "inspect":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS] TASKNAME\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `Return low-level information on a task`+"\n")
+		case "stop":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS] TASKNAME [TASKNAME...]\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `Stop a running task:stop all the container related to this task.The Ip and the virtual network device will not be given out by this command.`+"\n")
+		case "start":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS] TASKNAME [TASKNAME...]\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `Restart a stopped  task.`+"\n")
+		case "rm":
+			fmt.Fprintf(os.Stderr, "Usage: %s %s [OPTIONS] TASKNAME [TASKNAME...]\n", program , cont.name)
+			fmt.Fprintf(os.Stderr, `Restart a stopped  task.`+"\n")
+		default:
 	}
 	// should only output sub command flags, ignore h flag.
-	//interface can be used ???
 	fs := matchingCmd.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
 	fs.PrintDefaults()
+
+	util.PrintErr("\n"+cont.desc+"\n") 
+	linewidth := 160	
+	for index := range cont.validFlags{
+		each := cont.validFlags[index]
+		if len(each.usage)<linewidth{
+			util.PrintErr("-"+each.name+"    "+each.usage)	
+		}else{
+			util.PrintErr("-"+each.name+"    "+each.usage[:linewidth])	
+			util.PrintErr("      "+each.usage[linewidth:])	
+		}
+		/* util.PrintErr("-", eflag) */	
+	}
 
 	if len(cont.requiredFlags) > 0 {
 		fmt.Fprintf(os.Stderr, "\nrequired flags:\n")
@@ -207,9 +257,10 @@ func register( ){
 		{"create", "Create tasks"},
 		{"images", "List images"},
 		{"inspect", "Give details about a task"},
-		{"kill", "Kill tasks"},
+		{"stop", "Stop a running task"},
+		{"start", "Start a stoped task."},
+		{"rm", "Remove one or more stoped tasks"},
 		{"ps", "List tasks"},
-		{"rm", "Remove one or more tasks"},
 		{"rmi", "Remove one or more images"},
 		{"version", "Show the Wharf version information"},
 	}{
@@ -224,22 +275,55 @@ func register( ){
 				{"l","The biggest allowed average overload in the past 1 minute of one node. Any node who has a bigger average overload than floatnum will be filtered out. If this option is not provided, no nodes will be filtered out.","10.00"},
 				{"i","The name of the image, with which we will create our task. This option is also a must one.","imageName"},
 				{"C","The container num that we can bind on one cpu.That is to say, the task will share the cpu with other container on the cpu. The default value is 1, which means one cpu for one container","1"},
+				{"h","Print Usage.","false"},
 			})	
 		}else if strings.EqualFold( command[0], "images"){
-			/* On(command[0], command[1], &Images{}, []string{}) */	
-		
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+			})	
 		}else if strings.EqualFold( command[0], "inspect"){
-			/* On(command[0], command[1], &Inspect{}, []string{}) */	
-		}else if strings.EqualFold( command[0], "kill"){
-			/* On(command[0], command[1], &Kill{}, []string{}) */	
-		}else if strings.EqualFold( command[0], "ps"){
-			/* On(command[0], command[1], &Ps{}, []string{}) */	
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+					{"f","Format the output using the given go template",""},
+					{"h","Print Usage.","false"},
+			})	
+		}else if strings.EqualFold( command[0], "stop"){
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+					{"h","Print Usage.","false"},
+			})	
+		}else if strings.EqualFold( command[0], "start"){
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+					{"h","Print Usage.","false"},
+			})	
 		}else if strings.EqualFold( command[0], "rm"){
-			/* On(command[0], command[1], &Rm{}, []string{}) */	
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+				{"f","Force removal of running  task: stop the task before remove it.", `false`},
+				{"v","Remove the volumes associated with the containers in the task.", `false`},
+				{"h","Print Usage.","false"},
+			})	
+		}else if strings.EqualFold( command[0], "ps"){
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+				{"a","Show all tasks. Only running tasks are shown by defualt.","false" },
+				{"l","Show only the latest created task, include non-running ones.", "false"},
+				{"n","Show the task with the task name.", ""},
+				{"i","Show the task with the image name.", ""},
+				{"t","Show the task with the type name.", ""},
+				{"h","Print Usage.","false"},
+			})	
 		}else if strings.EqualFold( command[0], "rmi"){
-			/* On(command[0], command[1], &Rmi{}, []string{}) */	
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+				{"h","Print Usage.","false"},
+			})	
 		}else if strings.EqualFold( command[0], "version"){
-			/* On(command[0], command[1], &Version{}, []string{}) */	
+			On(command[0], command[1],  []string{},
+				[]flagDec{
+				{"h","Print Usage.","false"},
+			})	
 		}
 	}
 }
@@ -289,11 +373,11 @@ func Parse() {
 	if *FlagDebug {
 		fmt.Fprintf(os.Stderr, "Now sub command will be parsed in Parse of file wharf.go\n")	
 	} 
+	//command : wharf create -t=typename  -i=imagename
 	name := flag.Arg(0)
 	if cont, ok := cmds[name]; ok {
 		fs := cont.command.Flags(flag.NewFlagSet(name, flag.ExitOnError))
 		//define flags for sub command
-		flagHelp = fs.Bool("h", false, "Print help information and quit")
 		defineFlagset(fs, name)
 
 		// leftout the sub command, and the flag para is also in the flag.Args
@@ -350,11 +434,114 @@ func Run() {
 			subcommandUsage(matchingCmd)
 			return
 		}
-		matchingCmd.command.Run(args)
+		res, err := matchingCmd.command.Run(args)
+		if err != nil{
+			util.PrintErr("Server Error!")	
+			return 
+		}
+		subCmdName := matchingCmd.name
+		var output util.HttpResponse
+		jsonerr := json.Unmarshal(res, &output)
+		if jsonerr!= nil{
+			util.PrintErr("Error: Run()--json unmarshal err for output")	
+			return 
+		}
+
+		//the data is return by the server correctly.
+		switch subCmdName{
+			case "create":
+				if strings.HasPrefix(output.Status,"200"){
+					fmt.Println(`Task "`, output.Warnings[0],`"`, "is created!" )		
+					return 
+				}else{
+					util.PrintErr(`Error: Task Created failed. `, output.Warnings[0])	
+				}	
+			case "ps":
+				if strings.HasPrefix(output.Status,"200"){
+					fmt.Fprintf(os.Stdout, "%-20s%-30s%-20s%-20s%-20s%-20s\n","Taskname", "Status","Image", "Type", "Size", "CPUs")
+					result := output.Warnings
+					var psIterm server.PsOutput
+					for iterm := range result{
+						err := json.Unmarshal([]byte(result[iterm]), &psIterm)	
+						if err!= nil{
+							util.PrintErr("The result can not be parsed!")
+						}
+						dotindex := strings.Index(psIterm.Status, ".")
+						if dotindex != -1{
+							psIterm.Status = psIterm.Status[:dotindex]+"s"
+						}
+						fmt.Fprintf(os.Stdout, "%-20s%-30s%-20s%-20s%-20s%-20s\n",psIterm.TaskName, psIterm.Status, psIterm.Image, psIterm.Type, strconv.Itoa(psIterm.Size), strconv.Itoa(psIterm.Cpus))
+					}
+				}else{
+					util.PrintErr(`Error: Task ps failed. `, output.Warnings[0])	
+				}
+			case "inspect":
+				if strings.HasPrefix(output.Status,"200"){
+					var outputByte []byte
+					outputByte = []byte(output.Warnings[0])
+					_, exists := sendflags["f"] //such as .state.pid	
+					if  !exists{//no field is provided
+						var outputData server.InspectOutput
+						err = json.Unmarshal(outputByte, &outputData)
+						if err != nil{
+							util.PrintErr("Error: the data from the server can not be resolved.")	
+						}
+						util.FmtJson(outputByte)
+					}else{
+						fmt.Fprintf(os.Stdout, string(outputByte))
+					}
+				}else{
+					util.PrintErr(`Error: Task inspect failed. `, output.Warnings[0])	
+				}
+			case "stop":
+				outputByte := []byte(output.Warnings[0])
+				var outputData server.StopOutput
+				err = json.Unmarshal(outputByte, &outputData)
+				if err != nil{
+					util.PrintErr(string(outputByte))
+				}
+
+				if strings.HasPrefix(output.Status,"200"){
+					fmt.Println(outputData.Warning)
+				}else{
+					fmt.Println(outputData.String())	
+				}
+			case "start":
+				outputByte := []byte(output.Warnings[0])
+				var outputData server.StartOutput
+				err = json.Unmarshal(outputByte, &outputData)
+				if err != nil{
+					util.PrintErr(string(outputByte))
+				}
+
+				if strings.HasPrefix(output.Status,"200"){
+					fmt.Println(outputData.Warning)
+				}else{
+					fmt.Println(outputData.String())	
+				}
+			case "rm":
+				outputByte := []byte(output.Warnings[0])
+				var outputData server.StartOutput
+				err = json.Unmarshal(outputByte, &outputData)
+				if err != nil{
+					util.PrintErr(string(outputByte))
+				}
+
+				if strings.HasPrefix(output.Status,"200"){
+					fmt.Println(outputData.Warning)
+				}else{
+					fmt.Println(outputData.String())	
+				}
+
+			default:
+				util.PrintErr("subcommand", subCmdName, "is not recognized!")
+		}
+
 	}
 }
+
 // Returns the total number of globally registered flags.
-func numOfGlobalFlags() (count int) {
+func numOfGlobalFlags() (count int){
 	flag.VisitAll(func(flag *flag.Flag) {
 		count++
 	})

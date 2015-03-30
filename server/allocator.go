@@ -23,7 +23,7 @@ type CreateRequest struct{
 	ContainerNumMax int
 	ResNode map[string]string
 	ImageName string
-	Stratergy int
+	Stratergy string
 }
 
 func (c *CreateRequest )Init(){
@@ -50,11 +50,15 @@ func (c *CreateRequest )Init(){
 	c.ContainerNumMax = 1 
 	c.ResNode = make(map[string]string , 1)
 	c.ImageName ="" 
-	c.Stratergy = COM 
+	c.Stratergy = "COM"
 }
 
 /*
-from Gres, we filter out some node and cpu
+from Gres, we filter out some node and cpu.
+Only such node is valid:
+1)status is UP(not alive or down)
+2)Loadavg and  filter file statisfied.
+3)Mention: the Docker_nr <0 is ok for the result of Filter
 */
 func Filter( r CreateRequest) error{
 	for ip, nodeRes := range Gres {
@@ -89,6 +93,7 @@ func Allocate( r CreateRequest)error{
 		var nodeRes Res
 		for ip, nodeRes = range Rres {
 			totalCPuNum := r.TotalCpuNum
+			fmt.Println("docker_nr is:", nodeRes.Docker_nr)
 			for i:=0;i<len(nodeRes.Docker_nr);i++ {
 				if	nodeRes.Docker_nr[i] > 0{
 					totalCPuNum--	
@@ -107,9 +112,12 @@ func Allocate( r CreateRequest)error{
 						break //from for i	
 					}
 				}
-				break //from for ip
+				Ares[ip]=nodeRes
+				return nil
+				/* break //from for ip */
 			}
 		}//for ip
+		fmt.Println("totalCPuNum:", totalCPuNum)
 		if totalCPuNum > 0{
 			return  errors.New("We can not allocate so many cpus in a single machine")	
 		}else{
@@ -120,10 +128,10 @@ func Allocate( r CreateRequest)error{
 		var err error
 		switch r.Stratergy{
 
-			case COM:
+			case "COM":
 				err = AllocateCom( r)
 				return err
-			case MEM:
+			case "MEM":
 				err = AllocateMem( r)
 				return err
 			default://random

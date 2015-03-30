@@ -27,7 +27,7 @@ where <command> is one of:
 wharf <command> -h for subcommand help
 
 
-###wharf version
+###1.wharf version
 
 Usage: wharf version [options]
 
@@ -36,7 +36,7 @@ Show version of wharf.
 options:
 	-h=false	Show help information and quit.
 
-### wharf create
+### 2.wharf create
 
 Usage: whaft create [options] 
 
@@ -63,7 +63,7 @@ options:
   -f=filename				The node set which we create our task in. In the filename, we have each ip in one line. The default set is all the nodes with a resource daemon.
 
 
-###wharf ps 
+### 3.wharf ps 
 
   
 Usage: wharf ps [options]
@@ -72,29 +72,51 @@ List tasks.
 
 options:
 
-  -a, --all=false      		Show all containers. Only running containers are shown by default.
+  -a, --all=false      		Show all tasks. Only running tasks are shown by default.
 
-  -before=""           		Show only container created before Id or Name, include non-running ones.
+  -l, --latest=false    	Show only the latest created task, include non-running ones.
 
-  -l, --latest=false    	Show only the latest created container, include non-running ones.
+  -n=TASKNAME				Show n last created task, include non-running ones.
 
-  -n=-1                		Show n last created containers, include non-running ones.
+  -i=IMAGENAME			    Show the task with the image name.
 
- --no-trunc=false      		Don't truncate output
- 
-  -q, --quiet=false     	Only display numeric IDs
+  -t=TYPENAME    			Show the task with the type name.
 
-  -s, --size=false      	Display sizes: the cpu num and the container num.
 
-  --since=""            	Show only containers created since Id or Name, include non-running ones.
+### 4.wharf inspect 
 
-###wharf inspect 
-
-Usage: wharf inspect TASKNAME 
+Usage: wharf inspect [OPTIONS] TASKNAME 
 
 Return low-level information on a task 
 
   -f, --format=""    Format the output using the given go template.
+
+### 5.wharf stop
+
+Usage: wharf stop [OPTIONS] TASKNAME [TASKNAME...]
+
+
+Stop a running task---stop all the container related to this task.The Ip and the virtual network device will not be given out by this command.
+
+  --help=false       Print usage
+
+### 6.wharf start 
+
+Usage: wharf start [OPTIONS] TASKNAME [TASKNAME...]
+
+Restart a stopped 	task 
+
+  --help=false       Print usage
+
+### 7.wharf  rm 		
+
+Usage: wharf rm [OPTIONS]  TASKNAME [TASKNAME...]
+
+Remove one or more  tasks. 
+
+  -f, --force=false      Force removal of running  task: stop the task before remove it. 
+
+  -v, --volumes=false    Remove the volumes associated with the containers in the task.
 
 ### wharf images          
 
@@ -112,15 +134,6 @@ List images
 
   -n, --nodes=true     Show the all the nodes who have this image. 
 
-### wharf  rm 		
-
-Usage: wharf rm [OPTIONS]  TASK [TASK...]
-
-Remove one or more  tasks. 
-
-  -f, --force=false      Force removal of running  task: Kill the task before remove it. 
-
-  -v, --volumes=false    Remove the volumes associated with the containers in the task.
 
 ### wharf rmi         
 
@@ -133,10 +146,3 @@ Remove one or more images
   -no-prune=false      		Do not delete untagged parents.
   -nodes=NODE1,NODE2... 	Only remove the imags form the given nodes.
 
-### wharf kill            Kill tasks
-
-Usage: wharf kill [OPTIONS] TASK [TASK...]
-
-Kill a running task using SIGKILL or a specified signal. This means kill alll the container of the task.
-
-  -s, --signal="KILL"    Signal to send to the container

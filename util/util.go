@@ -2,7 +2,9 @@
 package util
 
 import(
+	"errors"
 	"io"
+	"io/ioutil"
 	"net"
     "log"
     "os"
@@ -11,6 +13,7 @@ import(
 	"strconv"
     "syscall"
 	"encoding/json"
+	"net/http"
 	"fmt"
 )
 
@@ -20,6 +23,11 @@ const(
 	UP=1
 	MaxFailTime=3
 	POSTTYPE="application/x-www-form-urlencoded"
+
+	//http response
+	OK="200-no error"
+	INVALID_INPUT="404-invalid input"
+	SERVER_ERROR="500-server error"
 )
 /*=====================config======================*/
 
@@ -109,6 +117,7 @@ type ContentError struct{
 
 type SendCmd struct{
 	Data map[string]string
+	Args []string
 }
 
 /*===net ===*/
@@ -117,19 +126,18 @@ type Container2Ip struct{
 	Ip	string
 }
 
-type BindResult struct{
-	Succeed bool
-	Warning string
-}
 
 //=============response
 type HttpResponse struct{
-	Succeed  bool
-	Warning	 string
+	Status	 string
+	Warnings	 []string
 }
-func (h *HttpResponse)Set(succeed bool , warning string){
-	h.Succeed = false
-	h.Warning = warning 
+func (h *HttpResponse)Append( iterm string){
+	h.Warnings = append(h.Warnings, iterm) 
+}
+func (h *HttpResponse)Set(status string, warning string){
+	h.Status = status 
+	h.Warnings = []string{warning}
 }
 func (h *HttpResponse)String() string{
 	if h==nil{
@@ -272,5 +280,28 @@ func PrintErr( a ...interface{}){
 	fmt.Fprintln(os.Stderr, a...)
 }
 
+func ReadContentFromHttpRequest( r *http.Request)([]byte, error){
+	var contents []byte
+	contents = make([]byte, 1000)
+	length, err := r.Body.Read(contents)
+	if err != nil && err != io.EOF{
+		return nil, errors.New("Server Fail read from the http requst in ReadContentFromHttpRequest()") 
+	}
+	return contents[:length], nil
+}
+
+func ReadContentFromHttpResponse( res *http.Response, ans interface{})(err error){
+	defer res.Body.Close()
+	contents , _:= ioutil.ReadAll(res.Body)
+	unmarshalerr := json.Unmarshal(contents, ans)
+	if unmarshalerr != nil{
+		return unmarshalerr	
+	}else{
+		return nil
+	}
+}
 //To do:
 //In func Daemon: the os.Stderr should be redirected to log file
+func FmtJson( input []byte){
+	fmt.Println(string(input))
+}

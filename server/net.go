@@ -3,14 +3,9 @@ package server
 
 import(
 	"net"
-	"errors"
 	"fmt"
 	"os"
-	"strings"
-	"encoding/json"
-	"io/ioutil"
 	"os/exec"
-	"net/http"
 	"wharf/util"
 )
 
@@ -36,8 +31,12 @@ func initNetwork( ){
 	// we map it by bit, and 2^13B will be needed to store the ips
 	NetworkSize =  1<< 14
 	freeBit = make([]byte, NetworkSize)//1 means can be use, and 0 means can not be use
+	var i int32
+	for i=0 ;i<NetworkSize; i++{
+		freeBit[i]=0xff
+	}
 	// At the begin, all the ips can not be used
-	Current = int32 (MasterConfig.Network.Start[14] )*256 + int32 ( MasterConfig.Network.End[15])
+	Current = int32 (MasterConfig.Network.Start[14] )*256 + int32 ( MasterConfig.Network.Start[15])
 	Updated = false
 	Update()
 }
@@ -208,40 +207,3 @@ func FreeIp( res []net.IP){
 	return 
 }
 
-
-/*function: bind a ip to a container in a host.
-	This is a http request posted to the "docker server". Actrually, it is handler by module of resource.
-	param:	
-		ip: the ip to be bind.
-		id: the id of the container
-		hostip:the hostip
-	return value:
-*/
-func BindIpWithContainerOnHost(containerIp string, id string , hostIp string )(error ){
-	port := MasterConfig.Resource.Port	
-	endpoint := "http://" + hostIp + ":" + port
-	var container2IP util.Container2Ip
-	container2IP = util.Container2Ip{id, containerIp}
-	data, jsonerr := json.Marshal(container2IP)
-	if jsonerr != nil{
-		return jsonerr
-	}
-	res, err := http.Post(endpoint, util.POSTTYPE, strings.NewReader(string(data)) )
-	if err != nil{
-		return err
-	}
-	//err == nil
-	defer res.Body.Close()
-	data , _= ioutil.ReadAll(res.Body)
-	var result util.BindResult		
-	jsonerr = json.Unmarshal(data, &result)
-	if jsonerr != nil{
-		return jsonerr	
-	}else{
-		if result.Succeed{
-			return nil
-		}else{
-			return errors.New(result.Warning)	
-		}
-	}
-}

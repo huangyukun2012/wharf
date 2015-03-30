@@ -107,8 +107,8 @@ func SendInfo2Etcd(status int32) (error){
 	}else{
 		machines := []string{"http://" + ClientConfig.EtcdNode.Ip +":" + ClientConfig.EtcdNode.Port}
 		if *flagD{
-			util.PrintErr(res.Ip)	
-			util.PrintErr(string(value))	
+			fmt.Fprintf(os.Stderr, "SendInfo2Etcd: Store data to etcd %s:%s\n", ClientConfig.EtcdNode.Ip,ClientConfig.EtcdNode.Port)	
+			fmt.Fprintf(os.Stderr, "ip is %s and data is %s\n", res.Ip, string(value))
 		}
 		var newerr error
 		for i:=0;i<5;i++{
