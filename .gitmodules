@@ -1,0 +1,6 @@
+[submodule "image"]
+	path = image
+	url = https://github.com/huangyukun2012/image.git
+[submodule "resource"]
+	path = resource
+	url = https://github.com/huangyukun2012/resource.git
