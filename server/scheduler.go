@@ -67,6 +67,8 @@ type CreateContainerReturn struct{
 	Warnings []string
 }
 
+
+
 /*This func will create container in endpoint according to opts, and return value of Container
 para:	
 	endpoint:	ip:port
@@ -354,5 +356,149 @@ func BindIpWithContainerOnHost(containerIp string, id string , hostIp string )(s
 			err = errors.New(result.Warnings[0])	
 		}
 		return networkName,err
+	}
+}
+
+/*===========================image=======================*/
+/*search if IMAGE is available on hostIP*/
+func  searchImageOnHost(nameOrId, hostIp string)(error ){
+	port := MasterConfig.Docker.Port
+	if port==string(""){
+		port="4243"	
+	}
+	endpoint := hostIp+":"+port
+	path := `/images`
+	url := `http://`+endpoint+path+`/`+nameOrId+`/`+`json`
+
+	resp,err := http.Get(url) 
+	if err!=nil{
+		return err
+	}else if !strings.HasPrefix(resp.Status, "200"){
+		return errors.New(resp.Status)	
+	}else{
+		return nil
+	}
+}
+
+
+func removeImageOnHost (nameOrId, hostIp string )error{
+	endpoint := "http://" + hostIp +":" +MasterConfig.Docker.Port 
+	path := `/images/` + nameOrId 
+
+	request , err := http.NewRequest("DELETE", endpoint+path, strings.NewReader(""))
+	if err != nil{
+		util.PrintErr("http.NewRequest: ", err.Error())
+		return errors.New("http.NewRequest: "+err.Error())
+	}
+
+	resp, err := http.DefaultClient.Do(request)
+	if err != nil{
+		util.PrintErr("http.DefaultClient.Do ", err.Error())	
+		return errors.New("http.DefaultClient.Do "+ err.Error())
+	}
+	if resp != nil{
+		defer resp.Body.Close()	
+	}
+
+	//err == nil
+	if !strings.HasPrefix(resp.Status, "200"){
+		return errors.New(resp.Status)
+	}else{
+		return nil	
+	}
+}
+
+func SaveImageOnHost(nameOrId, hostIp string)(error){
+
+    var info util.Image2TarAPI 
+    info = util.Image2TarAPI{Image:nameOrId, TarFileName: nameOrId+`.tar`}
+    data , _:= json.Marshal(info)                                                                                                                                                                                   
+    var url string
+     url = `http://`+hostIp + `:` +MasterConfig.Image.Port+`/save_image` 
+    resp, err := http.Post(url, util.POSTTYPE, strings.NewReader(string(data)))
+    if err != nil{
+		return errors.New("SaveImageOnHost: "+ err.Error())
+	}else if !strings.HasPrefix(resp.Status,"200"){
+		return errors.New("SaveImageOnHost: "+resp.Status)
+    }else{
+    	return nil
+    }
+}
+
+func TransportImagewithHead(info util.ImageTransportHeadAPI)error{
+                                                                                                                                                                                                                    
+    data , _:= json.Marshal(info)
+    url := `http://`+info.Server + `:` +MasterConfig.Image.Port+`/transport_image`
+    resp, err := http.Post(url, util.POSTTYPE, strings.NewReader(string(data)))
+    if err != nil{
+		return err
+    }else if !strings.HasPrefix(resp.Status, "200"){
+		return errors.New("TransportImagewithHead: "+resp.Status)
+    }else{
+		return nil	
+	}
+}
+
+func Load2DelwithHead(info util.ImageTransportHeadAPI)error{
+	tarFileName := info.FileName	
+	err := RmTarImageOnHost(tarFileName, info.Server)
+	if err != nil{
+		return err	
+	}
+	var chs []chan error
+	chs = make([]chan error, len(info.Nodes))
+	for index := range info.Nodes{
+		chs[index] = make(chan error)
+		hostIp := info.Net+":"+info.Nodes[index]
+		go load2del(tarFileName, hostIp, chs[index])
+	}
+
+	for i:=0;i<len(info.Nodes);i++{
+		value := <-chs[i]	
+		if value!=nil{
+			return value	
+		}
+	}
+	return nil
+}
+
+func load2del(tarFileName string , hostIp string, ch chan error){
+	loaderr := LoadTarOnHost(tarFileName, hostIp)	
+	if loaderr!=nil{
+		ch <- loaderr
+		return 
+	}
+	delerr := RmTarImageOnHost(tarFileName, hostIp)	
+	if delerr!=nil{
+		ch <- delerr
+		return 
+	}
+	ch <-nil
+	return 
+}
+
+func  LoadTarOnHost(tarFileName, hostIp string)error{
+
+	url := `http://`+hostIp+ `:` +MasterConfig.Image.Port+`/load_image`
+	resp, err := http.Post(url, util.POSTTYPE, strings.NewReader(tarFileName))
+	if err != nil{
+		return errors.New("Load tar on host Failed:"+err.Error())
+	}else if !strings.HasPrefix(resp.Status,"200"){
+		return  errors.New("Load tar on host Failed:"+resp.Status)
+	}else{
+		return  nil
+	}
+}
+
+func  RmTarImageOnHost(tarFileName, hostIp string)error{
+
+	url := `http://`+hostIp+ `:` +MasterConfig.Image.Port+`/rm_tarfile`
+	resp, err := http.Post(url, util.POSTTYPE, strings.NewReader(tarFileName))
+	if err != nil{
+		return errors.New("Delete tar on host Failed:"+err.Error())
+	}else if !strings.HasPrefix(resp.Status,"200"){
+		return  errors.New("Delete tar on host Failed:"+resp.Status)
+	}else{
+		return  nil
 	}
 }

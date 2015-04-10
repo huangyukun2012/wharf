@@ -104,17 +104,17 @@ func InitServer(){
 
 	http.HandleFunc("/ps", ListTaskHandler)
 	http.HandleFunc("/create", CreateTaskHandler)
-	http.HandleFunc("/transport_image", TransportImageHandler)
 	http.HandleFunc("/inspect", InspectTaskHandler)
 	http.HandleFunc("/stop", StopTaskHandler)
 	http.HandleFunc("/start", StartTaskHandler)
 	http.HandleFunc("/rm", RmTaskHandler)
+
+
 	errhttp := http.ListenAndServe(":"+MasterConfig.Server.Port, nil)
 	if errhttp != nil{
 		log.Fatal("InitServer: ListenAndServe ", errhttp)	
 	}
 }
-
 
 /*Function: statr etcd server for wharf.
 Carefull:
@@ -153,10 +153,6 @@ func initEtcd()error{
 }
 
 			
-
-func TransportImageHandler( w http.ResponseWriter, r *http.Request){
-}
-
 
 /*
 function:
@@ -725,7 +721,7 @@ func CreateTaskHandler( w http.ResponseWriter, r *http.Request){
 			util.PrintErr("Allocate complished for the create task! ", len(Ares), " containers will be created!")
 		}
 
-		err = ImageTransport()
+		err = ImageTransport(&thisTask)
 		if err!= nil{
 			io.WriteString(w, err.Error())	
 			io.WriteString(w, response.String())
@@ -754,8 +750,114 @@ func CreateTaskHandler( w http.ResponseWriter, r *http.Request){
 	}
 }
 
-func ImageTransport()error{
+/*
+Function:ImageTransport accoring to Ares
+Pro:
+	1.test the image exists,from all the Gres, get imageNodes and emptyNodes
+	2.Partion -- from the imageNodes and emptyNodes, get array of imageTransportHead 
+		
+	3.Transport -- (parallel)transport for each imageTransportHead, post the result to array res
+		3.1 save 
+		3.2 transport 
+		3.3 load	:parallel
+		3.4 delete	:parallel
+	4.return nil if all the res is true; else return err 
+*/
+
+func ImageTransport( thistask *Task)error{
+
+	imageName := thistask.Cmd.ImageName
+	var imageNodes []string	
+	var emptyNodes []string
+	for ip, _:= range Ares{
+		exitserr := searchImageOnHost(imageName, ip)
+		if exitserr!=nil{//no such image
+			emptyNodes=append(emptyNodes,ip)	
+		}	
+	}
+
+	for ip,_:= range Gres{
+		exitserr := searchImageOnHost(imageName, ip)
+		if exitserr==nil{
+			imageNodes=append(imageNodes,ip)	
+		}	
+	}
+	transportHeads := partition(imageNodes, emptyNodes, imageName)
+//transport
+	var chs	[]chan error 
+	setnum := len(transportHeads)
+	chs = make([]chan error, setnum)
+	for i:=0;i<setnum;i++{
+		chs[i]=make(chan error)
+		go saveTransLoadDel(imageName, transportHeads[i], chs[i])
+	}
+	for i:=0;i<setnum;i++{
+		value := <-chs[i]	
+		if value!=nil{
+			return value
+		}
+	}
 	return nil
+}
+
+func saveTransLoadDel(imageName string, transportHead util.ImageTransportHeadAPI, ch chan error)error{
+	err := SaveImageOnHost(imageName, transportHead.Server)
+	if err != nil{
+		ch <- err 
+		return err	
+	}
+	transerr := TransportImagewithHead(transportHead)	
+	if transerr != nil{
+		ch <- transerr 
+		return transerr	
+	}
+	load2delerr := Load2DelwithHead(transportHead)
+	if load2delerr!=nil{
+		ch <- load2delerr
+		return load2delerr
+	}
+	ch <- nil 
+	return nil
+}
+
+/*
+carefull: in this function, image name >> tarfilename
+*/
+func partition(imageNodes[]string, emptyNodes []string, imageName string)[]util.ImageTransportHeadAPI{
+	var transportHeads []util.ImageTransportHeadAPI
+	var thisHead util.ImageTransportHeadAPI
+	m:=len(imageNodes)
+	n:=len(emptyNodes)
+	num:= n/m
+	remain:=n%m
+	var i int
+	var emptyIndex int
+
+	netIp := MasterConfig.Network.Net
+	thisHead.Net = util.GetNetOfBIp(netIp.String())
+	thisHead.DataIndex = 0
+	thisHead.FileName=`/tmp/`+imageName+".tar"//make sure this filename
+
+	for i=0;i<remain;i++{
+		thisHead.Server = imageNodes[i]
+		thisHead.Nodes = make([]string, num+1)
+		for j:=0;j<num+1;j++{
+			thisHead.Nodes[j] = util.GetHostOfBIp(emptyNodes[emptyIndex])
+			emptyIndex++
+		}
+		transportHeads= append(transportHeads, thisHead)
+	}
+
+	for ;i<m&&num!=0;i++{
+		thisHead.Server = imageNodes[i]
+		thisHead.Nodes = make([]string, num)
+		for j:=0;j<num;j++{
+			thisHead.Nodes[j] = util.GetHostOfBIp(emptyNodes[emptyIndex])
+			emptyIndex++
+		}
+		transportHeads= append(transportHeads, thisHead)
+	}
+	return  transportHeads
 }
 
 //update Gres from etcd server

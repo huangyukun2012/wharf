@@ -15,6 +15,7 @@ import(
 	"encoding/json"
 	"net/http"
 	"fmt"
+	"time"
 )
 
 const(
@@ -37,6 +38,7 @@ type Config struct{
 	Server   	Serve
 	Docker		DockerService
 	Resource 	Resource	
+	Image		Image
 }
 
 func (c *Config)Init()error{
@@ -78,6 +80,9 @@ type Resource struct{
 	Port	string
 }
 
+type Image struct{
+	Port	string
+}
 /*===machine====*/
 type Mem struct {
 	Free int
@@ -304,4 +309,59 @@ func ReadContentFromHttpResponse( res *http.Response, ans interface{})(err error
 //In func Daemon: the os.Stderr should be redirected to log file
 func FmtJson( input []byte){
 	fmt.Println(string(input))
+}
+
+/*
+function:
+	if no data is send to clock: wait for duration, and then return.
+	if data is send to clock: then the function will return .
+*/
+func Timer(duration time.Duration, clock *chan bool)bool{
+	var isTimeOut bool
+
+	var timeout chan bool
+	timeout = make(chan bool, 1)
+
+	go func(){
+		time.Sleep(duration)	
+		timeout <- true
+	}()
+
+	select {
+		case <- (*clock):
+			isTimeOut=false
+		case <- timeout:	
+			isTimeOut=true
+	}
+
+	return isTimeOut
+}
+
+
+/**/
+func GetNetOfBIp(ip string)string{
+	domains := strings.Split(ip, ".")
+	res := domains[0]+"."+domains[1]
+	return res
+}
+/**/
+func GetHostOfBIp(ip string)string{
+	domains := strings.Split(ip, ".")
+	res := domains[2]+"."+domains[3]
+	return res
+
+}
+
+/*===ImageTransportHead===*/
+type ImageTransportHeadAPI struct{
+	Net string	`192.168`
+	FileName string	
+	DataIndex int
+	Nodes []string `1.1`
+	Server	string `ip`
+}
+
+type Image2TarAPI struct{
+	Image string
+	TarFileName string
 }

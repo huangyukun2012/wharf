@@ -1,6 +1,5 @@
-etcd
-hyk-pc.etcd/
-log
 tags
+etcd
 wharf/wharf
 resource/resource
+image/image
