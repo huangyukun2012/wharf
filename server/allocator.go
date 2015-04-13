@@ -1,8 +1,9 @@
 //allocator, filter,
 package server 
 import(
-	/* "net" */
+	"math"
 	"os"
+	"sort"
 	"strings"
 	"fmt"
 	"errors"
@@ -83,6 +84,8 @@ Function:
 	Allocate cpus according to typename and statergy
 Param:
 	r: r.TotalCpuNum, r.Stratergy
+return:
+	Ares
 */
 func Allocate( r CreateRequest)error{
 
@@ -127,7 +130,6 @@ func Allocate( r CreateRequest)error{
 	}else if strings.EqualFold(r.TypeName, "mpi"){
 		var err error
 		switch r.Stratergy{
-
 			case "COM":
 				err = AllocateCom( r)
 				return err
@@ -153,7 +155,7 @@ func Allocate( r CreateRequest)error{
 					if !HasNozero {
 						continue
 					}
-					Ares[ip] = nodeRes
+					Ares[ip] = nodeRes//there is no all-zero in Ares
 					if totalCPuNum <=0 {
 						break //from for ip
 					}	
@@ -169,10 +171,101 @@ func Allocate( r CreateRequest)error{
 }
 
 func AllocateCom( r CreateRequest) error{
+	var pList util.Ip_Cpus_List 
+
+	for ip,res := range Rres{
+		cpus := util.PositiveNum(res.Docker_nr)
+		node :=  &util.Ip_Cpus{ip,cpus}
+		pList = append(pList, node)
+	}
+
+	sort.Sort(pList)	
+	totalCPuNum := r.TotalCpuNum
+	for index:=0;index<len(pList);index++{
+		var HasNozero bool
+		ip:=pList[index].Ip
+		nodeRes,_ := Rres[ip]
+		for i:=0;i<len(nodeRes.Docker_nr);i++{
+			HasNozero = false
+			if nodeRes.Docker_nr[i]>0{
+				HasNozero = true 
+				totalCPuNum--	
+				if totalCPuNum <=0  {
+					break// from for i	
+				}
+				nodeRes.Docker_nr[i]=1
+			}else{
+				nodeRes.Docker_nr[i] =0
+			}	
+		}
+		if !HasNozero {
+			continue
+		}
+		Ares[ip] = nodeRes//there is no all-zero in Ares
+		if totalCPuNum <=0 {
+			break //from for index
+		}	
+	}
 	return nil
 }
 
 func AllocateMem( r CreateRequest) error{
+	totalCPuNum := r.TotalCpuNum
+	alreadyOccu := 0
+	for{
+		totalMem := getTotalFreemem()	
+		avgMem := float64(totalMem)/float64(totalCPuNum)
+		newOccu := 0
+		for ip,node := range Rres{
+			theory := math.Ceil( float64(node.Node.MemInfo.Free)/avgMem )
+			fact := util.PositiveNum(node.Docker_nr)
+			if fact < (int)theory{
+				alreadyOccu += fact
+				newOccu += fact
+				delete(Rres, ip)	
+				for i:=0;i<len(node.Docker_nr);i++{
+					if node.Docker_nr[i]>0{
+						node.Docker_nr[i]=1
+					}else{
+						node.Docker_nr[i]=0
+					}
+				}
+				Ares[ip]=node
+			}
+		}
+		if newOccu==0{
+			//hand out accoring to theory
+			for ip,node:=range Rres{
+				theory:=math.Ceil( float64(node.Node.MemInfo.Free)/avgMem)	
+				for i:=0;i<len(node.Docker_nr)&&theory>0;i++{
+					if node.Docker_nr[i]>0{
+						node.Docker_nr[i]=1
+					}else{
+						node.Docker_nr[i]=0
+					}
+					theory--
+				}
+				Ares[ip]=node
+			}
+			break	
+		}
+		else if alreadyOccu >= r.TotalMem{//all: fact > theory
+			break	
+		}else{
+			totalMem= totalMem-newOccu
+		}
+	}
+
+	if alreadyOccu < r.TotalMem{
+		return errors.New("It can provide so much cpu now!")	
+	}
 	return nil
 }
 
+func getTotalmem()int64{
+	var ans int64
+	for _, nodeRes := range Rres{
+		ans += nodeRes.Node.MemInfo.Free 	
+	}
+	return ans
+}

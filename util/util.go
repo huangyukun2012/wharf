@@ -16,6 +16,7 @@ import(
 	"net/http"
 	"fmt"
 	"time"
+	"os/exec"
 )
 
 const(
@@ -74,6 +75,7 @@ type Serve struct{
 
 type DockerService struct{
 	Port	string
+	Bridge	string
 }
 
 type Resource struct{
@@ -159,6 +161,7 @@ func UnmarshalReader( reader io.Reader, res interface{})(  error){
 	return err
 }
 
+/*=============Docker_nr=================*/
 func IsAllZero(input []int)bool{
 	for i:=0;i<len(input);i++{
 		if input[i] != 0{
@@ -166,6 +169,16 @@ func IsAllZero(input []int)bool{
 		}	
 	}
 	return true
+}
+
+func PositiveNum(input []int)int{
+	var ans int
+	for i:=0;i<len(input);i++{
+		if input[i] > 0{
+			ans++
+		}	
+	}
+	return ans 
 }
 
 func GetNozeroIndex(data []int)string{
@@ -338,13 +351,13 @@ func Timer(duration time.Duration, clock *chan bool)bool{
 }
 
 
-/**/
+/*===================Ip address handler====================*/
 func GetNetOfBIp(ip string)string{
 	domains := strings.Split(ip, ".")
 	res := domains[0]+"."+domains[1]
 	return res
 }
-/**/
+
 func GetHostOfBIp(ip string)string{
 	domains := strings.Split(ip, ".")
 	res := domains[2]+"."+domains[3]
@@ -364,4 +377,90 @@ type ImageTransportHeadAPI struct{
 type Image2TarAPI struct{
 	Image string
 	TarFileName string
+}
+
+/*===============start some progress====================*/
+func StartDocker(brName string)error{
+	if brName==""{
+		brName="br0"
+	}
+
+	fmt.Println("Make sure:you have configed the net interface bridge",brName,", or we will start docker using this br0 by default....")
+	_, err0 := exec.LookPath("docker")	
+	if err0 != nil{
+		errors.New(`You have not install 'docker' in your computer! Please install it first.`)
+	}
+
+	//test if docker has started yet
+	isDockerStartedCmd := exec.Command("pgrep", "docker")
+	isDockerStarted,_ := isDockerStartedCmd.Output()
+
+	if len(isDockerStarted)>0{
+		//ddocker is stated yet.
+			fmt.Println("Docker deamon is already running(not start by wharf).Please check it is running with ",brName)		
+			return nil
+	}
+
+	//docker is not stated, so we will start it
+	cmd := exec.Command("docker", "-b", brName,  "-d" , "-H", "unix:////var/run/docker.sock" , "-H" ,"0.0.0.0:4243")
+	err := cmd.Start()
+	var res error
+	if err != nil{
+		res= errors.New("Fail: can not start docker,"+err.Error())	
+	}
+	fmt.Println("docker is running with command", `docker -b=`,brName,`-d -H unix://var/run/docker.sock -H tcp://0.0.0.0:4243`)
+	return res
+}
+
+/*================provide a progress=================*/
+func  Progress(first, second int64){
+	line := make([]byte,19)
+	for i:=0;i<19;i++{
+		line[i]='\b'
+	}
+	fmt.Fprintf(os.Stdout,"%s%9d/%-9d",line,first,second)
+	os.Stdout.Sync()
+}
+
+func  StringFlush(content string){
+	length:=len(content)
+	line := make([]byte,length)
+	for i:=0;i<length;i++{
+		line[i]='\b'
+	}
+	fmt.Fprintf(os.Stdout,"%s%s",line, content)
+	os.Stdout.Sync()
+}
+
+/*==================sort of res================*/
+
+type Ip_Cpus struct{
+	Ip string
+	Cpus int
+}
+
+func (i *Ip_Cpus)String()string{
+	return i.Ip + "-"+strconv.Itoa(i.Cpus)	
+}
+
+type Ip_Cpus_List []*Ip_Cpus
+
+func (list Ip_Cpus_List)Len()int{
+	return len(list)
+}
+
+func (list Ip_Cpus_List)Less(i, j int)bool{
+	if list[i].Cpus > list[j].Cpus{
+		return true	
+	}else if list[i].Cpus < list[j].Cpus{
+		return false	
+	}else{
+		return list[i].Ip > list[j].Ip
+	}
+}
+
+func (list Ip_Cpus_List)Swap(i, j int){
+	var temp *Ip_Cpus = list[i]
+	list[i]=list[j]
+	list[j]=temp
 }

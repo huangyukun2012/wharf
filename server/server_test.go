@@ -5,9 +5,18 @@ import(
 )
 
 func Test_searchImage(t *testing.T){
-	err := searchImageOnHost(`ubuntu:latest`, `192.168.122.10`)
-	if err!=nil{
-		t.Error(err)	
+	fmt.Println("ubuntu:latest on 122.10")
+	have,_:= searchImageOnHost(`ubuntu:latest`, `192.168.122.10`)
+	if !have{
+		fmt.Println("do not found the iamge")
+	}else{
+		fmt.Println("found this image")	
+	}
+
+	fmt.Println("ubuntu:latest on 122.1")
+	haves,_:= searchImageOnHost(`ubuntu:latest`, `192.168.122.1`)
+	if haves{
+		fmt.Println("do not found the iamge")
 	}else{
 		fmt.Println("found this image")	
 	}

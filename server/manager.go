@@ -97,6 +97,11 @@ func InitServer(){
 		os.Exit(1)
 	}
 	initNetwork()	
+	starterr := util.StartDocker(MasterConfig.Docker.Bridge)
+	if starterr!=nil{
+		util.PrintErr(starterr)
+		os.Exit(1)
+	}
 	Gres = make(map[string]Res, 1)
 	Rres = make(map[string]Res, 1)
 	Ares = make(map[string]Res, 1)
@@ -721,6 +726,8 @@ func CreateTaskHandler( w http.ResponseWriter, r *http.Request){
 			util.PrintErr("Allocate complished for the create task! ", len(Ares), " containers will be created!")
 		}
 
+		thisTask.Init(userRequest,len(Ares) )
+
 		err = ImageTransport(&thisTask)
 		if err!= nil{
 			io.WriteString(w, err.Error())	
@@ -729,7 +736,6 @@ func CreateTaskHandler( w http.ResponseWriter, r *http.Request){
 		}
 
 		//create container,start it,  bind ip
-		thisTask.Init(userRequest,len(Ares) )
 		err = CreateContainer2Ares(&thisTask )
 		if err!= nil{
 				//Debug
@@ -765,27 +771,52 @@ Pro:
 */
 
 func ImageTransport( thistask *Task)error{
-
 	imageName := thistask.Cmd.ImageName
+	if imageName==""{
+		util.PrintErr("imageName should not be null")	
+		os.Exit(1)
+	}
+	if *FlagDebug{
+		util.PrintErr("[ ImageTransport ]")
+	}
 	var imageNodes []string	
 	var emptyNodes []string
-	for ip, _:= range Ares{
-		exitserr := searchImageOnHost(imageName, ip)
-		if exitserr!=nil{//no such image
-			emptyNodes=append(emptyNodes,ip)	
-		}	
-	}
+	
+	exits,_:= searchImageOnHost(imageName, MasterConfig.Server.Ip)
+	if exits{
+		imageNodes=append(imageNodes,MasterConfig.Server.Ip)	
+	}	
 
 	for ip,_:= range Gres{
-		exitserr := searchImageOnHost(imageName, ip)
-		if exitserr==nil{
+		exits,_:= searchImageOnHost(imageName, ip)
+		if exits{
 			imageNodes=append(imageNodes,ip)	
 		}	
 	}
+
+	if len(imageNodes)==0{
+		return errors.New("You do not have the image in the system")	
+	}
+
+	for ip, _:= range Ares{
+		if *FlagDebug{
+			util.PrintErr("search imageNodes on ip(imageName,ip):",imageName, ip)
+		}
+		exits,_:= searchImageOnHost(imageName, ip)
+		if !exits{//no such image
+			emptyNodes=append(emptyNodes,ip)	
+		}	
+	}
+	
 	transportHeads := partition(imageNodes, emptyNodes, imageName)
 //transport
 	var chs	[]chan error 
 	setnum := len(transportHeads)
+	
+	if *FlagDebug{
+		data ,_ := json.Marshal(transportHeads)
+		util.PrintErr(setnum , "transportHead:\n ",string(data))
+	}
 	chs = make([]chan error, setnum)
 	for i:=0;i<setnum;i++{
 		chs[i]=make(chan error)
@@ -797,16 +828,22 @@ func ImageTransport( thistask *Task)error{
 			return value
 		}
 	}
+	if *FlagDebug{
+		util.PrintErr("[ ImageTransport end!]")
+	}
 	return nil
 }
 
 func saveTransLoadDel(imageName string, transportHead util.ImageTransportHeadAPI, ch chan error)error{
+	if *FlagDebug{
+		util.PrintErr("[ saveTransLoadDel ]")
+	}
 	err := SaveImageOnHost(imageName, transportHead.Server)
 	if err != nil{
 		ch <- err 
 		return err	
 	}
-	transerr := TransportImagewithHead(transportHead)	
+	transerr := TransportImageWithHead(transportHead)	
 	if transerr != nil{
 		ch <- transerr 
 		return transerr	
@@ -824,10 +861,14 @@ func saveTransLoadDel(imageName string, transportHead util.ImageTransportHeadAPI
 carefull: in this function, image name >> tarfilename
 */
 func partition(imageNodes[]string, emptyNodes []string, imageName string)[]util.ImageTransportHeadAPI{
+	if *FlagDebug{
+		util.PrintErr("[partition]")	
+	}
 	var transportHeads []util.ImageTransportHeadAPI
 	var thisHead util.ImageTransportHeadAPI
 	m:=len(imageNodes)
 	n:=len(emptyNodes)
+	fmt.Println("imagenodes, emptyNodes:",m, n)
 	num:= n/m
 	remain:=n%m
 	var i int
@@ -836,7 +877,7 @@ func partition(imageNodes[]string, emptyNodes []string, imageName string)[]util.
 	netIp := MasterConfig.Network.Net
 	thisHead.Net = util.GetNetOfBIp(netIp.String())
 	thisHead.DataIndex = 0
-	thisHead.FileName=`/tmp/`+imageName+".tar"//make sure this filename
+	thisHead.FileName= imageName+".tar"//make sure this filename
 
 	for i=0;i<remain;i++{
 		thisHead.Server = imageNodes[i]
