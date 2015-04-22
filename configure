@@ -1,0 +1,62 @@
+#!/bin/bash
+echo "**************************test server************************"
+pre="docker installed......"
+which docker > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $res
+	echo $pre"Fail!"
+fi
+
+pre="etcd installed......"
+which etcd  > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $pre"Fail!"
+fi
+
+pre="image installed......"
+which image > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $pre"Fail!"
+fi
+
+echo "***********************test server end***********************"
+echo ""
+echo "**************************test client************************"
+
+pre="bindip.sh installed......"
+which bindip.sh > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $pre"Fail!"
+fi
+
+pre="resource installed......"
+which resource > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $pre"Fail!"
+fi
+
+pre="image installed......"
+which image > /dev/zero
+res=$?
+if [ $res -eq 0 ];then
+	echo $pre"OK!"
+else
+	echo $pre"Fail!"
+fi
+
+echo "************************test client end***********************"

@@ -212,6 +212,7 @@ func AllocateCom( r CreateRequest) error{
 func AllocateMem( r CreateRequest) error{
 	totalCPuNum := r.TotalCpuNum
 	alreadyOccu := 0
+
 	for{
 		totalMem := getTotalFreemem()	
 		avgMem := float64(totalMem)/float64(totalCPuNum)
@@ -219,7 +220,7 @@ func AllocateMem( r CreateRequest) error{
 		for ip,node := range Rres{
 			theory := math.Ceil( float64(node.Node.MemInfo.Free)/avgMem )
 			fact := util.PositiveNum(node.Docker_nr)
-			if fact < (int)theory{
+			if float64(fact) < theory {
 				alreadyOccu += fact
 				newOccu += fact
 				delete(Rres, ip)	
@@ -233,6 +234,7 @@ func AllocateMem( r CreateRequest) error{
 				Ares[ip]=node
 			}
 		}
+
 		if newOccu==0{
 			//hand out accoring to theory
 			for ip,node:=range Rres{
@@ -248,24 +250,23 @@ func AllocateMem( r CreateRequest) error{
 				Ares[ip]=node
 			}
 			break	
-		}
-		else if alreadyOccu >= r.TotalMem{//all: fact > theory
+		}else if alreadyOccu >= r.TotalCpuNum{//all: fact > theory
 			break	
 		}else{
-			totalMem= totalMem-newOccu
+			totalCPuNum -= newOccu
 		}
 	}
 
-	if alreadyOccu < r.TotalMem{
+	if alreadyOccu < r.TotalCpuNum{
 		return errors.New("It can provide so much cpu now!")	
 	}
 	return nil
 }
 
-func getTotalmem()int64{
+func getTotalFreemem()int64{
 	var ans int64
 	for _, nodeRes := range Rres{
-		ans += nodeRes.Node.MemInfo.Free 	
+		ans += int64(nodeRes.Node.MemInfo.Free)	
 	}
 	return ans
 }

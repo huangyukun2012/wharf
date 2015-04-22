@@ -4,10 +4,12 @@ package server
 import(
 	"errors"
 	"strings"
+	"strconv"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"wharf/util"
+
 )
 
 /*=========== containers================*/
@@ -159,7 +161,12 @@ func CreateContainer2Ares( tasknamep *Task) error{
 		tasknamep.Set[index].ContainerIp = thisContainerIp.String() 
 		var opts CreateContainerOptions
 		opts.Init()
-		opts.Hostname = thisContainerIp.String()//we set the container hostname as its ip 
+
+		fields := strings.Split(thisContainerIp.String(), ".")
+		first,_ := strconv.Atoi(fields[2])
+		second,_ := strconv.Atoi(fields[3])
+		hostnameIndex := first*256 + second
+		opts.Hostname = strconv.Itoa(hostnameIndex)//we set the container hostname as its ip index 
 		//modifiy: if Docker_nr all = 0, the node will be filter out
 		opts.Cpuset =  util.GetNozeroIndex( resData.Docker_nr )
 		opts.Image = tasknamep.Cmd.ImageName
