@@ -13,11 +13,11 @@ Before you run your system , you should modify the network on your computer. All
 
 ## wharf(on server node)
 
-1. get the code
+1.get the code
 
 git clone https://github.com/huangyukun2012/wharf.git wharf
 
-2. install 
+2.install 
 
 cd utils;go build;cd ..
 cd server;go build;cd ..
@@ -25,21 +25,21 @@ cd wharf;go build; go install
 
 ## image(on every node)
 
-1. get the code 
+1.get the code 
 
 get clone https://github.com/huangyukun2012/image.git image
 
-2. install 
+2.install 
 
 cd image ; go build ; go install 
 
 ## resource( on client nodes)
 
-1. get the code
+1.get the code
 
 git clone https://github.com/huangyukun2012/image.git resource
 
-2. install 
+2.install 
 
 cd resource ; go build ;go install
 
